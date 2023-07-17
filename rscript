@@ -1,0 +1,117 @@
+data <- read.csv("credit_risk_dataset.csv")
+
+#Check missing values
+missing_values <- colSums(is.na(data))
+print(missing_values)
+#895 missing values in employment length variable and 3116 missing values in the interest rate variable
+
+
+
+#DATA CLEANING#
+
+#Remove missing values
+data_voidna <- na.omit(data)
+dim(data_voidna)
+missing_values <- colSums(is.na(data_voidna))
+print(missing_values)
+#No more missing values
+
+
+#Handling categorical variables
+library(caret)
+
+#Home ownership
+home_ownership_encoded <- predict(dummyVars(~ person_home_ownership, data = data_voidna), newdata = data_voidna)
+class(home_ownership_encoded)
+home_ownership_encoded <- data.frame(home_ownership_encoded)
+#Loan intent
+loan_intent_encoded <- predict(dummyVars(~ loan_intent, data = data_voidna), newdata = data_voidna)
+class(loan_intent_encoded)
+loan_intent_encoded <- data.frame(loan_intent_encoded)
+#Loan grades
+#Convert loan_grades from A-G to 1-7
+data_voidna$loan_grades <- ifelse(data_voidna$loan_grade == "A", 1,
+                           ifelse(data_voidna$loan_grade == "B", 2,
+                                  ifelse(data_voidna$loan_grade == "C", 3,
+                                         ifelse(data_voidna$loan_grade == "D", 4,
+                                                ifelse(data_voidna$loan_grade == "E", 5,
+                                                       ifelse(data_voidna$loan_grade == "F", 6,
+                                                              ifelse(data_voidna$loan_grade == "G",7, NA)))))))
+sum(is.na(data$loan_grades))
+#There are no n/a values in this variable
+#Use cbind to combine all the encoded data
+data_cleaned <- cbind(data_voidna[, -c(3, 5, 6)], home_ownership_encoded, loan_intent_encoded)
+# Verify the updated dataset
+head(data_cleaned)
+
+#Check for n/a again
+missing_values1 <- colSums(is.na(data_cleaned))
+print(missing_values)
+#Now, our data is clean and ready for analysis.
+
+
+
+
+#FEATURE SELECTION#
+
+#Split into training data and testing data first
+# Set the seed for reproducibility
+set.seed(123)
+# Split the data into training and testing sets
+train_indices <- createDataPartition(data_cleaned$loan_status, p = 0.75, list = FALSE)
+train_data <- data_cleaned[train_indices, ]
+test_data <- data_cleaned[-train_indices, ]
+
+#Use random forest models to pick the features with the most impact on the target variable
+library(randomForest)
+model1 <- randomForest(loan_status ~ ., data = train_data, ntree = 100)
+importance_scores <- importance(model1)
+print(importance_scores)
+#Based on this model, historical default and credit history length have the least impact
+
+#Lets also employ correlation matrix
+#Convert all columns to numeric
+train_data[, 1:20] <- sapply(train_data[, 1:20], as.numeric)
+#This leads to defualt on file becoming void because the values are not numeric
+#Build correlation matrix
+correlation_matrix <- cor(train_data[, -c(16)], train_data$loan_status)
+#Not much correlation exists.
+#Let us remove historical default and credit history length from our training and testing data
+train_data_selected <- train_data[, -c(8, 9)]
+test_data_selected <- test_data[, -c(8, 9)]
+#Feature selection complete
+head(train_data_selected)
+
+
+
+
+
+
+#BUILD THE MODEL#
+#Use random forest algorithm to build the model
+#Convert loan status into a categorical variable
+train_data_selected$loan_status <- factor(train_data_selected$loan_status)
+test_data_selected$loan_status <- factor(test_data_selected$loan_status)
+# Create the Random Forest model
+model <- randomForest(loan_status ~ ., data = train_data_selected, ntree = 100)
+# Print the model summary
+print(model)
+# Make predictions on the test data
+predictions <- predict(model, newdata = test_data_selected)
+
+
+
+
+# EVALUATE MODEL PERFORMANCE#
+#Calculate accuracy
+accuracy <- mean(predictions == test_data_selected$loan_status)
+print(accuracy) #93.64%
+# Calculate precision
+precision <- sum(predictions == 1 & test_data_selected$loan_status == 1) / sum(predictions == 1)
+print(precision) #98.04
+# Calculate recall
+recall <- sum(predictions == 1 & test_data_selected$loan_status == 1) / sum(test_data_selected$loan_status == 1)
+print(recall) #71.84
+# Calculate F1-score
+f1_score <- 2 * (precision * recall) / (precision + recall)
+print(f1_score) #82.92
